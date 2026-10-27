@@ -486,6 +486,81 @@ async def setteamrank(
 # Р’Р«Р‘РћР  Р”Р’РЈРҐ РР“Р РћРљРћР’ Р”Р›РЇ Р—РђРџРРЎР
 # ==================================================
 
+@bot.tree.command(
+    name="removeteamrank",
+    description="Снять общий тир с команды 2 на 2"
+)
+@app_commands.describe(
+    player1="Первый игрок команды",
+    player2="Второй игрок команды"
+)
+@tester_only()
+async def removeteamrank(
+    interaction: discord.Interaction,
+    player1: discord.Member,
+    player2: discord.Member
+):
+    if player1.id == player2.id:
+        await interaction.response.send_message(
+            "Нужно выбрать двух разных игроков.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.followup.send(
+                "Эту команду нужно использовать на сервере.",
+                ephemeral=True
+            )
+            return
+
+        id1, id2 = str(player1.id), str(player2.id)
+        entry1 = teams_data.get(id1)
+        entry2 = teams_data.get(id2)
+        is_pair = (
+            isinstance(entry1, dict) and str(entry1.get("teammate")) == id2
+        ) or (
+            isinstance(entry2, dict) and str(entry2.get("teammate")) == id1
+        )
+
+        if is_pair:
+            teams_data.pop(id1, None)
+            teams_data.pop(id2, None)
+
+        for player in (player1, player2):
+            roles_to_remove = [
+                role
+                for role_id in TIER_ROLE_IDS.values()
+                if (role := guild.get_role(role_id)) is not None
+                and role in player.roles
+            ]
+            if roles_to_remove:
+                await player.remove_roles(
+                    *roles_to_remove,
+                    reason=f"Тир команды снят тестером {interaction.user}"
+                )
+            ranks_data.pop(str(player.id), None)
+
+        save_json(RANKS_FILE, ranks_data)
+        save_json(TEAMS_FILE, teams_data)
+        sync_rankings_to_website()
+
+        message = f"Общий тир команды {player1.mention} + {player2.mention} снят."
+        if not is_pair:
+            message += "\nСвязь этой пары в teams.json не найдена; роли тиров у выбранных игроков проверены и сняты."
+        await interaction.followup.send(message, ephemeral=True)
+
+    except (discord.Forbidden, discord.HTTPException) as error:
+        await interaction.followup.send(
+            f"Не удалось снять тир команды: {error}",
+            ephemeral=True
+        )
+
+
 class MinecraftNamesModal(discord.ui.Modal, title="Minecraft-ники команды"):
     my_nick = discord.ui.TextInput(
         label="Твой Minecraft-ник",
