@@ -569,12 +569,6 @@ async def setteamrank(
         teams_data[id1] = {"teammate": player2.id, "rank": rank_name.value}
         teams_data[id2] = {"teammate": player1.id, "rank": rank_name.value}
 
-        # Агрегированная запись помогает сайту показывать игроков в Team, не Solo.
-        teams_data[pair_key] = {
-            "players": [int(pair_ids[0]), int(pair_ids[1])],
-            "rank": rank_name.value
-        }
-
         save_json(TEAMS_FILE, teams_data)
         sync_rankings_to_website()
 
