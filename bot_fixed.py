@@ -448,6 +448,70 @@ async def setrank(
 # ==================================================
 
 @bot.tree.command(
+    name="removerank",
+    description="Снять тир с игрока"
+)
+@app_commands.describe(
+    player="Игрок, у которого нужно снять тир"
+)
+@tester_only()
+async def removerank(
+    interaction: discord.Interaction,
+    player: discord.Member
+):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        guild = interaction.guild
+
+        if guild is None:
+            await interaction.followup.send(
+                "Эту команду нужно использовать на сервере.",
+                ephemeral=True
+            )
+            return
+
+        # Удаляем все роли тиров у игрока.
+        roles_to_remove = [
+            role
+            for role_id in TIER_ROLE_IDS.values()
+            if (role := guild.get_role(role_id)) is not None
+            and role in player.roles
+        ]
+
+        if roles_to_remove:
+            await player.remove_roles(
+                *roles_to_remove,
+                reason=f"Тир снят тестером {interaction.user}"
+            )
+
+        # Удаляем тир из локального рейтинга.
+        ranks_data.pop(str(player.id), None)
+        save_json(RANKS_FILE, ranks_data)
+
+        # Синхронизируем данные с сайтом.
+        sync_rankings_to_website()
+
+        # Удаляем игрока и его пару из очереди.
+        await remove_player_team_from_queue(player.id)
+
+        await interaction.followup.send(
+            f"Тир игрока {player.mention} снят.",
+            ephemeral=True
+        )
+
+    except (discord.Forbidden, discord.HTTPException) as error:
+        await interaction.followup.send(
+            f"Не удалось снять тир: {error}",
+            ephemeral=True
+        )
+
+# ==================================================
+# РљРћРњРђРќР”Рђ /SETTEAMRANK
+
+# ==================================================
+
+@bot.tree.command(
     name="setteamrank",
     description="Установить общий тир для двух игроков"
 )
