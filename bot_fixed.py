@@ -1,7 +1,6 @@
 
 import os
 import json
-import requests
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -14,8 +13,6 @@ load_dotenv()
 # ==================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-WEBSITE_SYNC_URL = os.getenv("WEBSITE_SYNC_URL", "").rstrip("/")
-WEBSITE_SYNC_SECRET = os.getenv("WEBSITE_SYNC_SECRET", "")
 
 GUILD_ID = 1564674095193530468
 TESTER_ROLE_ID = 1564689801322438656
@@ -134,32 +131,6 @@ def clean_empty_team_pairs():
 
     if changed:
         save_json(TEAMS_FILE, teams_data)
-
-
-def sync_rankings_to_website():
-    """Очищает пустые пары и синхронизирует рейтинги с сайтом."""
-    clean_empty_team_pairs()
-
-    if not WEBSITE_SYNC_URL or not WEBSITE_SYNC_SECRET:
-        print("[Website sync] Не заданы WEBSITE_SYNC_URL или WEBSITE_SYNC_SECRET.")
-        return
-
-    try:
-        response = requests.post(
-            f"{WEBSITE_SYNC_URL}/api/sync",
-            json={
-                # Не публикуем индивидуальные ранги — только команды 2v2.
-                "ranks": {},
-                "teams": teams_data,
-                "player_names": player_names_data,
-            },
-            headers={"Authorization": f"Bearer {WEBSITE_SYNC_SECRET}"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        print("[Website sync] Данные отправлены на сайт!")
-    except requests.RequestException as error:
-        print(f"[Website sync] Ошибка синхронизации: {error}")
 
 
 queue_data = {
@@ -381,7 +352,6 @@ async def assign_rank(
         )
 
     # Индивидуальные ранги отключены: тир существует только у команды 2v2.
-    sync_rankings_to_website()
 
     # Р’С‹РґР°С‡Р° СЂР°РЅРіР° СѓРґР°Р»СЏРµС‚ РёР· РѕС‡РµСЂРµРґРё РІСЃСЋ РїР°СЂСѓ РёРіСЂРѕРєР°.
     await remove_player_team_from_queue(player.id)
@@ -406,6 +376,36 @@ async def tiers(interaction: discord.Interaction):
         color=discord.Color.blurple()
     )
     await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(
+    name="rank",
+    description="Посмотреть общий тир команды 2 на 2"
+)
+@app_commands.describe(player="Игрок, чей тир нужно посмотреть")
+async def rank(interaction: discord.Interaction, player: discord.Member):
+    team_info = teams_data.get(str(player.id))
+    teammate_text = "Не указан"
+    team_rank = None
+
+    if isinstance(team_info, dict):
+        teammate_id = team_info.get("teammate")
+        if teammate_id:
+            teammate_text = f"<@{teammate_id}>"
+        team_rank = team_info.get("rank")
+
+    embed = discord.Embed(
+        title=f"Тир команды игрока {player.display_name}",
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Игрок", value=player.mention, inline=False)
+    embed.add_field(
+        name="Общий тир 2 на 2",
+        value=f"**{team_rank}**" if team_rank else "Не установлен",
+        inline=True
+    )
+    embed.add_field(name="Напарник", value=teammate_text, inline=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(
@@ -467,7 +467,16 @@ async def setteamrank(
         teams_data[id2] = {"teammate": player1.id, "rank": rank_name.value}
 
         save_json(TEAMS_FILE, teams_data)
-        sync_rankings_to_website()
+
+        results_channel = discord.utils.get(
+            interaction.guild.text_channels,
+            name="результаты"
+        ) if interaction.guild else None
+        if results_channel is not None:
+            await results_channel.send(
+                f"🏆 **Ап ранга 2v2!** {player1.mention} + {player2.mention} "
+                f"получили общий тир **{rank_name.value}**!"
+            )
 
         await interaction.followup.send(
             f"Команде {player1.mention} + {player2.mention} "
@@ -547,7 +556,6 @@ async def removeteamrank(
 
         save_json(RANKS_FILE, ranks_data)
         save_json(TEAMS_FILE, teams_data)
-        sync_rankings_to_website()
 
         message = f"Общий тир команды {player1.mention} + {player2.mention} снят."
         if not is_pair:
@@ -604,7 +612,6 @@ class MinecraftNamesModal(discord.ui.Modal, title="Minecraft-ники коман
 
         save_queue()
         await refresh_queue_message()
-        sync_rankings_to_website()
 
         await interaction.response.send_message(
             f"Команда добавлена: {nick1} + {nick2}",
@@ -855,8 +862,6 @@ async def on_ready():
     print("Slash commands synced to Freaky Tiers!")
 
     # РџСЂРё Р·Р°РїСѓСЃРєРµ РѕС‚РїСЂР°РІР»СЏРµРј С‚РµРєСѓС‰РёРµ СЃРѕС…СЂР°РЅС‘РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ РЅР° СЃР°Р№С‚.
-    sync_rankings_to_website()
-
 
 if not TOKEN:
     raise RuntimeError(
